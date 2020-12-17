@@ -12,13 +12,13 @@ RED =       (255,   0,   0)
 
 class actor(object):
     """docstring for actor"""
-    def __init__(self, blocksize = 40, HEIGHT = 10, WIDTH = 10, x0 = 0, y0 = 0, actor_type = 'obstacle'):
+    def __init__(self, blocksize = 40, HEIGHT = 10, WIDTH = 10, x0 = 0, y0 = 0, step_size = 1, actor_type = 'obstacle'):
         super(actor, self).__init__()
         self.x = x0
         self.y = y0
         self.h = HEIGHT
         self.w = WIDTH
-        self.step_size = 1 # how many tiles it moves each tick
+        self.step_size = step_size # how many tiles it moves each tick
         self.blocksize = blocksize
         self.type = actor_type
 
@@ -59,18 +59,18 @@ class gridWorld(object):
         pygame.init()
         self.screen = pygame.display.set_mode((self.w * self.blocksize, self.h * self.blocksize))
         self.clock = pygame.time.Clock()
-        self.goal = actor(actor_type = 'goal')
+        self.goal = actor(x0 = 5, y0 = 5, step_size = 0, actor_type = 'goal')
         self.obstacle = actor(x0 = 5, y0 = 5)
-        self.run()
+        self.agent = actor(x0 = 0, y0 = HEIGHT - 1, actor_type = 'agent')
+        self.run = True
+        self.loop()
 
-    def run(self):
-        
-        run = True
+    def loop(self):
 
-        while(run):
+        while(self.run):
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    run = False
+                    self.run = False
             self.screen.fill(WHITE)
             self.drawGrid()
             self.tick()
@@ -83,10 +83,19 @@ class gridWorld(object):
         pygame.quit()
         sys.exit()
 
+    def collision(self):
+        if (self.agent.x == self.obstacle.x) and (self.agent.y == self.obstacle.y):
+            self.run = False
+            print('Collision has happened')
+        print('agent:', (self.agent.x, self.agent.y), 'obstacle:', (self.obstacle.x, self.obstacle.y))
+
+
     def tick(self):
-        self.obstacle.move()
-        self.obstacle.draw(self.screen)
-        time.sleep(1)
+        for actor in [self.obstacle, self.agent, self.goal]:
+            actor.move()
+            actor.draw(self.screen)
+        self.collision()
+        time.sleep(0.5)
 
 
     def drawGrid(self):

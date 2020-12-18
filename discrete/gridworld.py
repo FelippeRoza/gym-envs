@@ -34,7 +34,6 @@ class actor(object):
             self.x = min(self.x + self.step_size, self.w - 1)
         else:
             self.x = max(self.x - self.step_size, 0)
-        print('coordinate: ', self.x, self.y)
 
     def draw(self, screen):
         pos = (self.x * self.blocksize + self.blocksize/2, self.y * self.blocksize + self.blocksize/2)
@@ -71,32 +70,41 @@ class gridWorld(object):
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.run = False
-            self.screen.fill(WHITE)
-            self.drawGrid()
-            self.tick()
-            pygame.display.flip()
+            self.step()
+            self.refresh_screen()
 
+            time.sleep(0.2)
         self.quit()
+
+    def step(self):
+        for actor in [self.obstacle, self.agent, self.goal]:
+            actor.move()
+        if self.collision(self.agent, self.obstacle):
+            print('Collision has happened')
+            return -1
+        elif self.collision(self.agent, self.goal):
+            print('Reached goal')
+            return 1
+        else:
+            return 0
+
+    def refresh_screen(self):
+        self.screen.fill(WHITE)
+        self.drawGrid()
+        for actor in [self.obstacle, self.agent, self.goal]:
+            actor.draw(self.screen)
+        pygame.display.flip()
 
     def quit(self):
         pygame.display.quit()
         pygame.quit()
         sys.exit()
 
-    def collision(self):
-        if (self.agent.x == self.obstacle.x) and (self.agent.y == self.obstacle.y):
-            self.run = False
-            print('Collision has happened')
-        print('agent:', (self.agent.x, self.agent.y), 'obstacle:', (self.obstacle.x, self.obstacle.y))
-
-
-    def tick(self):
-        for actor in [self.obstacle, self.agent, self.goal]:
-            actor.move()
-            actor.draw(self.screen)
-        self.collision()
-        time.sleep(0.5)
-
+    def collision(self, actor1, actor2):
+        if (actor1.x == actor2.x) and (actor1.y == actor2.y):
+            return True
+        else:
+            return False
 
     def drawGrid(self):
         for x in range(self.h):
@@ -104,7 +112,6 @@ class gridWorld(object):
                 rect = pygame.Rect(x*self.blocksize, y*self.blocksize,
                                    self.blocksize, self.blocksize)
                 pygame.draw.rect(self.screen, BLACK, rect, 1)
-
 
 
 if __name__ == "__main__":

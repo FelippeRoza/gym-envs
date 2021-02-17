@@ -1,4 +1,5 @@
-import pygame
+import matplotlib.pyplot as plt
+import matplotlib
 import sys
 import random
 import time
@@ -25,12 +26,12 @@ class AbstractMovingObject():
     def __init__(self, pos, grid_dims, radius=None):
         self.pos = pos
         if radius:
-            self.min_row = max(pos[0]-radius, 0)   
+            self.min_row = max(pos[0]-radius, 0)
             self.max_row = min(pos[0]+radius, grid_dims[0]-1)
-            self.min_col = max(pos[1]-radius, 0)   
+            self.min_col = max(pos[1]-radius, 0)
             self.max_col = min(pos[1]+radius, grid_dims[1]-1)
         else:
-            self.min_row = 0       
+            self.min_row = 0
             self.max_row = grid_dims[0]-1
             self.min_col = 0
             self.max_col = grid_dims[1]-1
@@ -41,11 +42,8 @@ class AbstractMovingObject():
                            3:'right'
                         }
 
-
     def _move(self, action=None):
-
         action = self.action_dict[action]
-
         if action == 'up':
             self.pos = (max(self.pos[0] - 1, self.min_row), self.pos[1])
         elif action == 'down':
@@ -60,7 +58,7 @@ class MovingAgent(AbstractMovingObject):
     def __init__(self, color=RED, **kwargs):
         super().__init__(**kwargs)
         self.color = color
-    
+
     def move(self, action):
         self._move(action)
 
@@ -70,7 +68,7 @@ class MovingObstacle(AbstractMovingObject):
         super().__init__(**kwargs)
         self.step_size = step_size
         self.color = color
-    
+
     def move(self):
         for i in range(self.step_size):
             action = random.choice(range(len(self.action_dict)))
@@ -87,19 +85,19 @@ class GridState():
 
     def __init__(self, grid_dims, obs_positions, agent_position, goal_position):
         self.grid_dims = grid_dims
-        self.obs_positions = obs_positions 
+        self.obs_positions = obs_positions
         self.agent_position = agent_position
         self.goal_position = goal_position
         self.make_grid()
 
     def update(self, new_obs_positions, new_agent_position):
-        self.obs_positions = new_obs_positions 
+        self.obs_positions = new_obs_positions
         self.agent_position = new_agent_position
         self.make_grid()
 
-    def make_grid(self, one_hot=True):
+    def return_state(self, one_hot=True):
         '''
-        encoding: agent = 1, goal = 5, regular obstacle = 2
+        encoding: agent = 1, obstacle = 2, goal 3 or all one-hot
         '''
         if one_hot:
             grid = np.zeros((3, *self.grid_dims), dtype=np.int8)
@@ -108,37 +106,45 @@ class GridState():
             for obs_pos in self.obs_positions:
                 grid[(1, *obs_pos)] = 1
             grid[(2, *self.goal_position)] = 1
-            self.grid = grid
         else:
             grid = np.zeros(self.grid_dims, dtype=np.int8)
             grid[self.agent_position] = 1
             for obs_pos in self.obs_positions:
                 grid[obs_pos] = 2
             grid[self.goal_position] = 3
-            self.grid = grid
+        return grid
+
+    def make_grid(self, one_hot=True):
+        '''
+        encoding: agent = 1, goal = 5, regular obstacle = 2
+        '''
+        self.grid = self.return_state(one_hot)
 
 
 class DynamicGridWorld(gym.Env):
     '''
     docstring for GridWorld
     '''
-    def __init__(self, grid_dims, agent_position, goal_position, obs_positions, obs_moving_radius=1):
-     
+    def __init__(self, grid_dims, agent_position, goal_position, obs_positions,
+                obs_moving_radius=1, max_steps=100, show_axis = False):
+
         self.grid_dims = grid_dims
         self.n_rows, self.n_cols = grid_dims
-
         #init positions
         self.init_agent_position = agent_position
         self.init_obs_positions = obs_positions
         self.init_goal_position = goal_position
         self.obs_moving_radius = obs_moving_radius
-
         self.action_space = spaces.Discrete(4)
         self.observation_space = spaces.MultiBinary([3,self.n_rows,self.n_cols]) # one_hot encoded observations
-
+        self.max_steps = max_steps
         #for rendering
-        self.screen = None
-        
+        self.fig, self.ax = plt.subplots(1, 1, tight_layout=True)
+        # make color map
+        self.my_cmap = matplotlib.colors.ListedColormap(['w', 'g', 'b', 'r'])
+        if not show_axis:
+            self.ax.axis('off')
+
     def step(self, action):
 
         new_obs_positions = set()
@@ -147,14 +153,14 @@ class DynamicGridWorld(gym.Env):
         for obst in self.obstacles:
             obst.move()
             new_obs_positions.add(obst.pos)
-           
+
         # move agent
         self.agent.move(action)
         new_agent_pos = self.agent.pos
         new_state = copy(self.state)
         new_state.update(new_obs_positions, new_agent_pos)
 
-        if self.is_collision(self.state, new_state):
+        if self.is_collision(self.state, new_state) or self.counter > self.max_steps:
             reward = -1
             self.done = True
 
@@ -167,6 +173,7 @@ class DynamicGridWorld(gym.Env):
             self.state = new_state
             reward = 0
             self.done = False
+            self.counter+=1
 
         observation = self.state.grid
         info = {} #so far no info is returned
@@ -175,14 +182,14 @@ class DynamicGridWorld(gym.Env):
 
     def is_collision(self, old_state, new_state):
         if new_state.agent_position in new_state.obs_positions:
-            print('Collision: same new state')
-            return True 
+            #print('Collision: same new state')
+            return True
         elif new_state.agent_position in old_state.obs_positions and old_state.agent_position in new_state.obs_positions:
-            print('Collision: swapping is not allowed')
+            #print('Collision: swapping is not allowed')
             return True
         else:
             return False
-    
+
     def is_goal(self, new_state):
         return new_state.agent_position == new_state.goal_position
 
@@ -192,69 +199,26 @@ class DynamicGridWorld(gym.Env):
         self.agent = MovingAgent(pos=agent_position, grid_dims=self.grid_dims)
         self.goal = StaticGoal(pos=goal_position)
         self.state = GridState(self.grid_dims, set(obs_positions), agent_position, goal_position)
-
+        self.counter = 0
         return self.state.grid
 
-    def render(self, close=False):
+    def render(self):
 
-        def drawGrid():
-            for x in range(self.n_rows):
-                for y in range(self.n_cols):
-                    rect = pygame.Rect(x*BLOCKSIZE, y*BLOCKSIZE,
-                                    BLOCKSIZE, BLOCKSIZE)
-                    pygame.draw.rect(self.screen, BLACK, rect, 1)
-   
-        def drawObject(grid_object):
-            
-            def draw_circle(pos, color):
-                center = (pos[1]*BLOCKSIZE+BLOCKSIZE/2, pos[0]*BLOCKSIZE+BLOCKSIZE/2)
-                pygame.draw.circle(self.screen, color, center, BLOCKSIZE/2)
+        data = self.state.return_state(one_hot = False)
 
-            def draw_rectangle(pos, color):
-                rect = pygame.Rect(pos[1]*BLOCKSIZE, pos[0]*BLOCKSIZE, BLOCKSIZE,BLOCKSIZE)
-                pygame.draw.rect(self.screen, color, rect)
+        # draw the grid
+        n_row, n_col = data.shape
+        for x in range(n_col + 1):
+        	self.ax.axhline(x, lw=2, color='k', zorder=5)
+        for x in range(n_row + 1):
+        	self.ax.axvline(x, lw=2, color='k', zorder=5)
+        # draw the boxes
+        self.ax.imshow(data, interpolation='none', cmap=self.my_cmap, extent=[0, n_col, 0, n_row], zorder=0)
+        plt.show()
 
 
-            if isinstance(grid_object, MovingAgent):
-                draw_circle(grid_object.pos, grid_object.color)
-
-            elif isinstance(grid_object, MovingObstacle):
-                draw_rectangle(grid_object.pos, grid_object.color)
-
-            elif isinstance(grid_object, StaticGoal):
-                draw_rectangle(grid_object.pos, grid_object.color)
-
-        if close:
-            print('closing')
-            pygame.display.quit()
-            pygame.quit()
-            sys.exit()
-            
-        else:
-            if self.screen is None:
-                pygame.init()
-                self.screen = pygame.display.set_mode((self.n_cols * BLOCKSIZE, self.n_rows * BLOCKSIZE))
-                self.clock = pygame.time.Clock()
-
-        self.screen.fill(WHITE)
-        drawGrid()
-
-        for grid_object in [*self.obstacles, self.agent, self.goal]:
-            drawObject(grid_object)
-
-        pygame.display.update()
-        self.clock.tick(RENDER_FPS)
-
-        
     def stop(self):
-   
-        pygame.display.quit()
-        print('stopped display')
-        pygame.quit()
-        sys.exit()
-        raise SystemExit
-        
-
+        raise NotImplementedError
 
 
 class DGW_2_MovObs_7x7_Random(DynamicGridWorld):
@@ -276,5 +240,5 @@ class DGW_2_MovObs_7x7_Random(DynamicGridWorld):
         self.agent = MovingAgent(pos=agent_position, grid_dims=self.grid_dims)
         self.goal = StaticGoal(pos=goal_position)
         self.state = GridState(self.grid_dims, set(obs_positions), agent_position, goal_position)
-
+        self.counter = 0
         return self.state.grid

@@ -16,6 +16,10 @@ def key_event(event):
 		print('invalid key, will go up')
 		action = 0
 	s_t, r_t, done, _ = env.step(action)
+	if done:
+		print('Done! Reward:', r_t)
+		env.reset()
+
 	env.render()
 
 env = gym.make("DynamicGridWorld-2-MovObs-7x7-Random-v0")

@@ -136,7 +136,7 @@ class DynamicGridWorld(gym.Env):
         self.init_goal_position = goal_position
         self.obs_moving_radius = obs_moving_radius
         self.action_space = spaces.Discrete(4)
-        self.observation_space = spaces.MultiBinary([3,self.n_rows,self.n_cols]) # one_hot encoded observations
+        self.observation_space = spaces.Box(low=-1, high=1, shape = [3,self.n_rows,self.n_cols]) # one_hot encoded observations
         self.max_steps = max_steps
         #for rendering
         self.fig, self.ax = plt.subplots(1, 1, tight_layout=True)

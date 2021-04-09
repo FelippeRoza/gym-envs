@@ -1,5 +1,4 @@
-import matplotlib.pyplot as plt
-import matplotlib
+# import pygame
 import sys
 import random
 import time
@@ -8,6 +7,10 @@ import numpy as np
 from copy import copy
 import gym
 from gym import spaces
+
+
+import matplotlib.pyplot as plt
+import matplotlib
 
 BLACK =     (  0,   0,   0)
 WHITE =     (250, 250, 250)
@@ -18,6 +21,15 @@ YELLOW =    (255, 255,   0)
 BLOCKSIZE = 40
 RENDER_FPS = 20
 
+actor_mapping = {
+    'agent': 1,
+    'StaticGoal': 2,
+    'MovingObstacle': 3,
+    'Pillar': 4,
+    'Hazard': 5,
+    'Vase': 6
+}
+
 class AbstractMovingObject():
     '''
     docstring for abstract moving object on the grid,
@@ -25,6 +37,7 @@ class AbstractMovingObject():
     '''
     def __init__(self, pos, grid_dims, radius=None):
         self.pos = pos
+        self.static = False
         if radius:
             self.min_row = max(pos[0]-radius, 0)
             self.max_row = min(pos[0]+radius, grid_dims[0]-1)
@@ -58,6 +71,7 @@ class MovingAgent(AbstractMovingObject):
     def __init__(self, color=RED, **kwargs):
         super().__init__(**kwargs)
         self.color = color
+        self.type = 'agent'
 
     def move(self, action):
         self._move(action)
@@ -68,6 +82,7 @@ class MovingObstacle(AbstractMovingObject):
         super().__init__(**kwargs)
         self.step_size = step_size
         self.color = color
+        self.type = 'MovingObstacle'
 
     def move(self):
         for i in range(self.step_size):
@@ -75,96 +90,135 @@ class MovingObstacle(AbstractMovingObject):
             self._move(action)
 
 
-class StaticGoal():
-    def __init__(self, pos, color=YELLOW):
+class StaticObject():
+    def __init__(self, pos):
+        super().__init__()
         self.pos = pos
+        self.static = True
+
+
+class Hazard(StaticObject):
+    '''
+    Dangerous non-physical areas to avoid.
+    The agent is penalized for entering them.
+    '''
+    def __init__(self, color=YELLOW, **kwargs):
+        super().__init__(**kwargs)
         self.color = color
+        self.type = 'Hazard'
 
 
-class GridState():
+class Vase(StaticObject):
+    '''
+    Objects to avoid. Small blocks that represent fragile objects.
+    The agent is penalized for touching or moving them.
+    '''
+    def __init__(self, color=YELLOW, **kwargs):
+        super().__init__(**kwargs)
+        self.color = color
+        self.type = 'Vase'
 
-    def __init__(self, grid_dims, obs_positions, agent_position, goal_position):
-        self.grid_dims = grid_dims
-        self.obs_positions = obs_positions
-        self.agent_position = agent_position
-        self.goal_position = goal_position
-        self.make_grid()
 
-    def update(self, new_obs_positions, new_agent_position):
-        self.obs_positions = new_obs_positions
-        self.agent_position = new_agent_position
-        self.make_grid()
+class Pillar(StaticObject):
+    '''
+    mmobile obstacles. These are rigid barriers in the environment,
+    which the agent should not touch.
+    '''
+    def __init__(self, color=YELLOW, **kwargs):
+        super().__init__(**kwargs)
+        self.color = color
+        self.type = 'Pillar'
 
-    def return_state(self, one_hot=True):
-        '''
-        encoding: agent = 1, obstacle = 2, goal 3 or all one-hot
-        '''
-        if one_hot:
-            grid = np.zeros((3, *self.grid_dims), dtype=np.int8)
 
-            grid[(0, *self.agent_position)] = 1
-            for obs_pos in self.obs_positions:
-                grid[(1, *obs_pos)] = 1
-            grid[(2, *self.goal_position)] = 1
-        else:
-            grid = np.zeros(self.grid_dims, dtype=np.int8)
-            grid[self.agent_position] = 1
-            for obs_pos in self.obs_positions:
-                grid[obs_pos] = 2
-            grid[self.goal_position] = 3
-        return grid
-
-    def make_grid(self, one_hot=True):
-        '''
-        encoding: agent = 1, goal = 5, regular obstacle = 2
-        '''
-        self.grid = self.return_state(one_hot)
+class StaticGoal(StaticObject):
+    def __init__(self, color=YELLOW, **kwargs):
+        super().__init__(**kwargs)
+        self.color = color
+        self.type = 'StaticGoal'
 
 
 class DynamicGridWorld(gym.Env):
     '''
     docstring for GridWorld
     '''
-    def __init__(self, grid_dims, agent_position, goal_position, obs_positions,
-                obs_moving_radius=1, max_steps=100, show_axis = False):
+    def __init__(self, grid_dims, initial_pos, obs_moving_radius=1,
+                    max_steps=100, show_axis = False):
 
         self.grid_dims = grid_dims
         self.n_rows, self.n_cols = grid_dims
         #init positions
-        self.init_agent_position = agent_position
-        self.init_obs_positions = obs_positions
-        self.init_goal_position = goal_position
-        self.obs_moving_radius = obs_moving_radius
+        self.initial_pos = initial_pos
+        self.actors = []
         self.action_space = spaces.Discrete(4)
         self.observation_space = spaces.Box(low=-1, high=1, shape = [3,self.n_rows,self.n_cols]) # one_hot encoded observations
         self.max_steps = max_steps
         #for rendering
         self.fig, self.ax = plt.subplots(1, 1, tight_layout=True)
         # make color map
-        self.my_cmap = matplotlib.colors.ListedColormap(['w', 'g', 'b', 'r'])
+        self.my_cmap = matplotlib.colors.ListedColormap(['w', 'b', 'g', 'r', 'k', 'y', 'm'], N = 7)
         if not show_axis:
             self.ax.axis('off')
+
+    def return_state(self, one_hot=False):
+        '''
+        encoding: agent = 1, obstacle = 2, goal 3 or all one-hot
+        '''
+        if one_hot:
+            # grid = np.zeros((3, *self.grid_dims), dtype=np.int8)
+            #
+            # grid[(0, *self.agent_position)] = 1
+            # for obs_pos in self.obs_positions:
+            #     grid[(1, *obs_pos)] = 1
+            # grid[(2, *self.goal_position)] = 1
+            pass
+        else:
+            grid = np.zeros(self.grid_dims, dtype=np.int8)
+            for actor in self.actors:
+                value = actor_mapping[actor.type]
+                grid[actor.pos] = value
+            grid[self.agent.pos] = 1
+        return grid
+
+    def agent_pos(self, state = None):
+        if state is None:
+            state = self.return_state()
+        pos = np.where(state == 1)
+        return (int(pos[0]), int(pos[1]))
+
+    def goal_pos(self, state = None):
+        if state is None:
+            state = self.return_state()
+        pos = np.where(state == 2)
+        return (int(pos[0]), int(pos[1]))
+
+    def remove_obstacle(self, pos):
+        for actor in self.actors:
+            if actor.pos == pos and actor.type != 'agent':
+                print(actor.type, 'removed!')
+                self.actors.remove(actor)
+
 
     def step(self, action):
 
         new_obs_positions = set()
 
         # move objects
-        for obst in self.obstacles:
-            obst.move()
-            new_obs_positions.add(obst.pos)
+        for actor in self.actors:
+            if actor.type == 'agent':
+                break
+            if not actor.static:
+                obst.move()
 
         # move agent
+        old_state = self.return_state()
         self.agent.move(action)
         new_agent_pos = self.agent.pos
-        new_state = copy(self.state)
-        new_state.update(new_obs_positions, new_agent_pos)
+        new_state = self.return_state()
 
-        if self.is_collision(self.state, new_state) or self.counter > self.max_steps:
-            reward = -1
-            self.done = True
+        if self.is_collision(new_agent_pos, old_state, new_state) or self.counter > self.max_steps:
+            reward, self.done = self.collision(new_agent_pos, old_state, new_state)
 
-        elif self.is_goal(new_state):
+        elif self.is_goal(new_state, old_state):
             self.state = new_state
             reward = 1
             self.done = True
@@ -175,36 +229,70 @@ class DynamicGridWorld(gym.Env):
             self.done = False
             self.counter+=1
 
-        observation = self.state.grid
+        observation = self.return_state()
         info = {} #so far no info is returned
 
         return observation, reward, self.done, info
 
-    def is_collision(self, old_state, new_state):
-        if new_state.agent_position in new_state.obs_positions:
-            #print('Collision: same new state')
+    def collision(self, new_agent_pos, old_state, new_state):
+        if old_state[new_agent_pos] == actor_mapping['MovingObstacle']:
+            print('Hit a moving obstacle')
+            return -1, True
+        elif old_state[new_agent_pos] == actor_mapping['Pillar']:
+            print('Hit a pillar')
+            return -1, True
+        elif old_state[new_agent_pos] == actor_mapping['Hazard']:
+            print('In a Hazardous position')
+            return -1, False
+        elif old_state[new_agent_pos] == actor_mapping['Vase']:
+            print('Crashed a vase')
+            self.remove_obstacle(new_agent_pos)
+            return -1, False
+
+    def is_collision(self, new_agent_pos, old_state, new_state):
+        if old_state[new_agent_pos] not in [0, 1, 2]:
             return True
-        elif new_state.agent_position in old_state.obs_positions and old_state.agent_position in new_state.obs_positions:
-            #print('Collision: swapping is not allowed')
-            return True
+
+        # elif new_state.agent_position in old_state.obs_positions and old_state.agent_position in new_state.obs_positions:
+        #     #print('Collision: swapping is not allowed')
+        #     return True
         else:
             return False
 
-    def is_goal(self, new_state):
-        return new_state.agent_position == new_state.goal_position
+    def is_goal(self, new_state, old_state):
+        return self.agent_pos(new_state) == self.goal_pos(old_state)
 
     def reset(self):
-        agent_position, goal_position, obs_positions = self.init_agent_position, self.init_goal_position, self.init_obs_positions
-        self.obstacles = [MovingObstacle(pos=pos, grid_dims=self.grid_dims, radius=self.obs_moving_radius) for pos in obs_positions]
-        self.agent = MovingAgent(pos=agent_position, grid_dims=self.grid_dims)
-        self.goal = StaticGoal(pos=goal_position)
-        self.state = GridState(self.grid_dims, set(obs_positions), agent_position, goal_position)
+        self.actors = []
+        for type, pos in self.initial_pos:
+            self.add_actor(pos, type)
+        self.state = self.return_state(self.grid_dims, self.actors)
         self.counter = 0
-        return self.state.grid
+        return self.state
+
+    def add_actor(self, pos, type = 'agent'):
+        '''
+        add actors to environment, either RL agents, obstacles or goals
+        '''
+        assert type in ['agent', 'StaticGoal', 'MovingObstacle', 'Hazard', 'Pillar', 'Vase']
+
+        if type == 'agent':
+            self.agent = MovingAgent(pos=pos, grid_dims=self.grid_dims)
+            self.actors.append(self.agent)
+        elif type == 'StaticGoal':
+            self.goal = StaticGoal(pos=pos)
+            self.actors.append(self.goal)
+        elif type == 'MovingObstacle':
+            self.actors.append(MovingObstacle(pos=pos, grid_dims=self.grid_dims, radius=self.obs_moving_radius))
+        elif type == 'Hazard':
+            self.actors.append(Hazard(pos=pos))
+        elif type == 'Pillar':
+            self.actors.append(Pillar(pos=pos))
+        elif type == 'Vase':
+            self.actors.append(Vase(pos=pos))
 
     def render(self):
-
-        data = self.state.return_state(one_hot = False)
+        data = self.return_state(one_hot = False)
 
         # draw the grid
         n_row, n_col = data.shape
@@ -213,9 +301,8 @@ class DynamicGridWorld(gym.Env):
         for x in range(n_row + 1):
         	self.ax.axvline(x, lw=2, color='k', zorder=5)
         # draw the boxes
-        self.ax.imshow(data, interpolation='none', cmap=self.my_cmap, extent=[0, n_col, 0, n_row], zorder=0)
+        self.ax.imshow(data, interpolation='none', cmap=self.my_cmap, extent=[0, n_col, 0, n_row], vmin=0, vmax=6)
         plt.show()
-
 
     def stop(self):
         raise NotImplementedError
@@ -224,21 +311,23 @@ class DynamicGridWorld(gym.Env):
 class DGW_2_MovObs_7x7_Random(DynamicGridWorld):
     def __init__(self):
         grid_dims = (7,7)
-        super().__init__(grid_dims, *self.random_pos_init())
-
-    def random_pos_init(self):
-        starting_positions = [(1,1), (1,5), (5,1), (5,5)]
-        starting_positions = random.sample(starting_positions,4)
-        agent_position = starting_positions[0]
-        goal_position = starting_positions[1]
-        obs_positions = starting_positions[2:]
-        return agent_position, goal_position, obs_positions
+        initial_pos = {
+        'agent': (1, 1),
+        'StaticGoal': (5,5),
+        'Pillar': (3,2),
+        'Pillar': (2,4),
+        'Vase': (3,4),
+        'Hazard': (4,4)
+        }
+        super().__init__(grid_dims, initial_pos)#, *self.random_pos_init())
+    #
+    # def random_pos_init(self):
+    #     print('do something different')
 
     def reset(self):
-        agent_position, goal_position, obs_positions = self.random_pos_init()
-        self.obstacles = [MovingObstacle(pos=pos, grid_dims=self.grid_dims, radius=self.obs_moving_radius) for pos in obs_positions]
-        self.agent = MovingAgent(pos=agent_position, grid_dims=self.grid_dims)
-        self.goal = StaticGoal(pos=goal_position)
-        self.state = GridState(self.grid_dims, set(obs_positions), agent_position, goal_position)
+        # agent_position, goal_position, obs_positions = self.random_pos_init()
+        for type, pos in self.initial_pos.items():
+            self.add_actor(pos, type)
+        self.state = self.return_state()
         self.counter = 0
-        return self.state.grid
+        return self.state

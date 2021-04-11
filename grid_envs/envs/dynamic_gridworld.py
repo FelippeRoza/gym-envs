@@ -1,4 +1,3 @@
-# import pygame
 import sys
 import random
 import time
@@ -7,7 +6,6 @@ import numpy as np
 from copy import copy
 import gym
 from gym import spaces
-
 
 import matplotlib.pyplot as plt
 import matplotlib
@@ -158,6 +156,7 @@ class DynamicGridWorld(gym.Env):
         self.my_cmap = matplotlib.colors.ListedColormap(['w', 'b', 'g', 'r', 'k', 'y', 'm'], N = 7)
         if not show_axis:
             self.ax.axis('off')
+        plt.ion()
 
     def return_state(self, one_hot=False):
         '''
@@ -262,12 +261,25 @@ class DynamicGridWorld(gym.Env):
     def is_goal(self, new_state, old_state):
         return self.agent_pos(new_state) == self.goal_pos(old_state)
 
+    def reset_draw(self):
+        data = self.return_state(one_hot = False)
+        # draw the grid
+        n_row, n_col = data.shape
+        for x in range(n_col + 1):
+        	self.ax.axhline(x, lw=2, color='k', zorder=5)
+        for x in range(n_row + 1):
+        	self.ax.axvline(x, lw=2, color='k', zorder=5)
+        imshow = self.ax.imshow(data, interpolation='none', cmap=self.my_cmap, extent=[0, n_col, 0, n_row], vmin=0, vmax=6)
+        plt.show()
+        return imshow
+
     def reset(self):
         self.actors = []
-        for type, pos in self.initial_pos:
+        for type, pos in self.initial_pos.items():
             self.add_actor(pos, type)
-        self.state = self.return_state(self.grid_dims, self.actors)
+        self.state = self.return_state()
         self.counter = 0
+        self.imshow = self.reset_draw()
         return self.state
 
     def add_actor(self, pos, type = 'agent'):
@@ -293,16 +305,12 @@ class DynamicGridWorld(gym.Env):
 
     def render(self):
         data = self.return_state(one_hot = False)
+        self.fig.canvas.flush_events()
 
-        # draw the grid
-        n_row, n_col = data.shape
-        for x in range(n_col + 1):
-        	self.ax.axhline(x, lw=2, color='k', zorder=5)
-        for x in range(n_row + 1):
-        	self.ax.axvline(x, lw=2, color='k', zorder=5)
+        self.imshow.set_data(data)
+        plt.draw()
+        plt.pause(0.001)
         # draw the boxes
-        self.ax.imshow(data, interpolation='none', cmap=self.my_cmap, extent=[0, n_col, 0, n_row], vmin=0, vmax=6)
-        plt.show()
 
     def stop(self):
         raise NotImplementedError
@@ -320,14 +328,3 @@ class DGW_2_MovObs_7x7_Random(DynamicGridWorld):
         'Hazard': (4,4)
         }
         super().__init__(grid_dims, initial_pos)#, *self.random_pos_init())
-    #
-    # def random_pos_init(self):
-    #     print('do something different')
-
-    def reset(self):
-        # agent_position, goal_position, obs_positions = self.random_pos_init()
-        for type, pos in self.initial_pos.items():
-            self.add_actor(pos, type)
-        self.state = self.return_state()
-        self.counter = 0
-        return self.state

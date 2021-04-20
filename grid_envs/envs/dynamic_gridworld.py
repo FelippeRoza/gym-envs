@@ -7,6 +7,7 @@ from copy import copy
 import gym
 from gym import spaces
 
+
 import matplotlib.pyplot as plt
 import matplotlib
 
@@ -140,7 +141,7 @@ class DynamicGridWorld(gym.Env):
     docstring for GridWorld
     '''
     def __init__(self, grid_dims, initial_pos, obs_moving_radius=1,
-                    max_steps=100, show_axis = False):
+                    max_steps=30, show_axis = False):
 
         self.grid_dims = grid_dims
         self.n_rows, self.n_cols = grid_dims
@@ -148,7 +149,7 @@ class DynamicGridWorld(gym.Env):
         self.initial_pos = initial_pos
         self.actors = []
         self.action_space = spaces.Discrete(4)
-        self.observation_space = spaces.Box(low=-1, high=1, shape = [3,self.n_rows,self.n_cols]) # one_hot encoded observations
+        self.observation_space = spaces.Box(low=-1, high=1, shape = [self.n_rows,self.n_cols]) # one_hot encoded observations
         self.max_steps = max_steps
         #for rendering
         self.fig, self.ax = plt.subplots(1, 1, tight_layout=True)
@@ -213,8 +214,10 @@ class DynamicGridWorld(gym.Env):
         self.agent.move(action)
         new_agent_pos = self.agent.pos
         new_state = self.return_state()
+        self.counter+=1
 
-        if self.is_collision(new_agent_pos, old_state, new_state) or self.counter > self.max_steps:
+
+        if self.is_collision(new_agent_pos, old_state, new_state):
             reward, self.done = self.collision(new_agent_pos, old_state, new_state)
 
         elif self.is_goal(new_state, old_state):
@@ -224,9 +227,11 @@ class DynamicGridWorld(gym.Env):
 
         else:
             self.state = new_state
-            reward = 0
+            reward = -0.01
             self.done = False
-            self.counter+=1
+
+        if self.counter >= self.max_steps:
+            self.done = True
 
         observation = self.return_state()
         info = {} #so far no info is returned
@@ -251,10 +256,6 @@ class DynamicGridWorld(gym.Env):
     def is_collision(self, new_agent_pos, old_state, new_state):
         if old_state[new_agent_pos] not in [0, 1, 2]:
             return True
-
-        # elif new_state.agent_position in old_state.obs_positions and old_state.agent_position in new_state.obs_positions:
-        #     #print('Collision: swapping is not allowed')
-        #     return True
         else:
             return False
 
@@ -277,10 +278,9 @@ class DynamicGridWorld(gym.Env):
         self.actors = []
         for type, pos in self.initial_pos.items():
             self.add_actor(pos, type)
-        self.state = self.return_state()
         self.counter = 0
         self.imshow = self.reset_draw()
-        return self.state
+        return self.return_state()
 
     def add_actor(self, pos, type = 'agent'):
         '''

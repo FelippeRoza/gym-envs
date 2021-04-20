@@ -1,26 +1,21 @@
 import gym
 import grid_envs
 import time
-import random 
+import random
 
 env = gym.make("DynamicGridWorld-2-MovObs-7x7-Random-v0")
-env.reset()
 
-print(env.action_space)
+print(env.action_space.sample())
 
-agent_actions = [0,3]
-done = False
-try:
-	while not done:
+obs = env.reset()
+env.render()
+for i in range(1000):
+    obs, reward, done, info = env.step(env.action_space.sample())
 
-		s_t, r_t, done, _ = env.step(env.action_space.sample())
-		print(s_t)
-		env.render()
+    if done:
+      obs = env.reset()
 
-		if done:
-			env.reset()
-			done = False
+    env.render()
+    time.sleep(0.3)
 
-
-except KeyboardInterrupt:
-	env.stop()
+env.close()

@@ -250,7 +250,7 @@ class DynamicGridWorld(gym.Env):
 
     def reset(self):
         self.actors = []
-        for type, pos in self.initial_pos.items():
+        for type, pos in self.initial_pos:
             self.add_actor(pos, type)
         self.counter = 0
         self.imshow = self.reset_draw()
@@ -291,12 +291,12 @@ class DynamicGridWorld(gym.Env):
 class DGW_2_MovObs_7x7_Random(DynamicGridWorld):
     def __init__(self):
         grid_dims = (7,7)
-        initial_pos = {
-        'agent': (1, 1),
-        'StaticGoal': (5,5),
-        'Pillar': (3,2),
-        'Pillar': (2,4),
-        'Vase': (3,4),
-        'Hazard': (4,4)
-        }
+        initial_pos = [
+        ['agent', (1, 1)],
+        ['StaticGoal', (5,5)],
+        ['Pillar', (3,2)],
+        ['Pillar', (2,4)],
+        ['Vase', (3,4)],
+        ['Hazard', (4,4)]
+        ]
         super().__init__(grid_dims, initial_pos)#, *self.random_pos_init())

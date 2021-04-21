@@ -188,13 +188,17 @@ class DynamicGridWorld(gym.Env):
                 obst.move()
         # move agent
         old_state = self.return_state()
+        old_agent_pos = self.agent.pos
         self.agent.move(action)
         new_agent_pos = self.agent.pos
         new_state = self.return_state()
         self.counter+=1
 
         if self.is_collision(new_agent_pos, old_state, new_state):
-            reward, self.done = self.collision(new_agent_pos, old_state, new_state)
+            reward, sturdy, self.done = self.collision(new_agent_pos, old_state, new_state)
+            if sturdy:
+                new_state = old_state
+                self.agent.pos = old_agent_pos
         elif self.is_goal(new_state, old_state):
             self.state = new_state
             reward = 1
@@ -206,25 +210,26 @@ class DynamicGridWorld(gym.Env):
         if self.counter >= self.max_steps:
             self.done = True
 
-        observation = self.return_state()
         info = {} #so far no info is returned
 
-        return observation, reward, self.done, info
+        return new_state, reward, self.done, info
 
     def collision(self, new_agent_pos, old_state, new_state):
+        '''returns (reward, sturdy, done)
+        a sturdy object indicates that the agent move to that position'''
         if old_state[new_agent_pos] == self.actor_mapping['MovingObstacle']:
             print('Hit a moving obstacle')
-            return -1, True
+            return -1, True, True
         elif old_state[new_agent_pos] == self.actor_mapping['Pillar']:
             print('Hit a pillar')
-            return -1, True
+            return -1, True, False
         elif old_state[new_agent_pos] == self.actor_mapping['Hazard']:
             print('In a Hazardous position')
-            return -1, False
+            return -1, False, False
         elif old_state[new_agent_pos] == self.actor_mapping['Vase']:
             print('Crashed a vase')
             self.remove_obstacle(new_agent_pos)
-            return -1, False
+            return -1, False, False
 
     def is_collision(self, new_agent_pos, old_state, new_state):
         if old_state[new_agent_pos] not in [0, 1, 2]:
